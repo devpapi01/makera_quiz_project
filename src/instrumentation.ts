@@ -6,6 +6,5 @@ if (dsn) {
   Sentry.init({
     dsn,
     environment: import.meta.env.MODE,
-    sendDefaultPii: false,
   });
 }
