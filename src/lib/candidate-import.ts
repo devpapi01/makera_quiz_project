@@ -236,7 +236,7 @@ export async function parseCandidateFile(file: File): Promise<CandidateImportRow
     ["email", "mail", "courriel", "emailaddress", "adressemail", "adresseeemail", "adresseelectronique"].includes(header),
   );
   const nameIndex = headers.findIndex((header) => ["nom", "name", "nomcomplet", "fullname", "candidat", "candidatename"].includes(header));
-  const projectIndex = headers.findIndex((header) => ["projet", "project", "businessproject"].includes(header));
+  const projectIndex = headers.findIndex((header) => ["projet", "project", "businessproject", "programme", "programmedaccompagnement", "programmeaccompagnement"].includes(header));
   const hasHeader = emailIndex >= 0;
   if (!hasHeader && !emailPattern.test((rows[0][0] || "").trim()))
     throw new Error("Ajoutez une colonne « email » ou fournissez une liste d’adresses sans en-tête.");
@@ -262,7 +262,7 @@ export function candidateCsv(rows: Array<{
   assessmentStatus?: string;
   score?: number | null;
 }>) {
-  const fields = ["Nom", "E-mail", "Projet", "Accès", "Questionnaire", "Score"];
+  const fields = ["Nom", "E-mail", "Programme d’accompagnement", "Accès", "Questionnaire", "Score"];
   const records = rows.map((candidate) => [
     candidate.name,
     candidate.email,

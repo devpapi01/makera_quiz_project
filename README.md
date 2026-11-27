@@ -5,9 +5,28 @@ Nouvelle application indépendante de la V2 : React 19, TypeScript, Vite, Tailwi
 ## Espaces inclus
 
 - **Connexion privée** : pas de formulaire d’inscription publique, activation par invitation et récupération du mot de passe par e-mail. Deux profils de démonstration sont disponibles uniquement en mode local.
-- **Candidat** : tableau de bord, questionnaire Makera de 56 affirmations et 8 réflexions, sauvegarde de progression, résultats, canvas business model à 9 blocs et carnet de notes privé.
-- **Administration** : invitation nominative par e-mail, gestion de l’autorisation individuelle et ouverture générale du questionnaire.
+- **Candidat** : tableau de bord, questionnaire Makera de 56 affirmations et 8 réflexions, sauvegarde de progression, résultats, export PDF du business model, et carnet de notes privé.
+- **Administration** : invitation nominative par e-mail, gestion de l’autorisation individuelle, ouverture générale du questionnaire, fiche candidat détaillée et plans d’action enregistrés par passation. La fiche produit un rapport imprimable que l’administrateur peut enregistrer en PDF.
 - **Mode sombre** : mémorisé dans le navigateur et disponible depuis l’écran de connexion comme depuis l’application.
+
+## Pages et navigation
+
+L’application reste une SPA React : chaque espace dispose de son URL directe sans recharger l’application. Les chemins sont centralisés dans `src/lib/routes.ts`, les écrans sont isolés dans `src/pages/WorkspacePages.tsx`, et la page d’adresse inconnue est dans `src/pages/NotFoundPage.tsx`.
+
+| Écran | Chemin |
+| --- | --- |
+| Connexion | `/` ou `/connexion` |
+| Activation et récupération du mot de passe | `/invite/accept` |
+| Vue d’ensemble | `/app` |
+| Questionnaire | `/app/questionnaire` |
+| Résultats | `/app/resultats` |
+| Business model | `/app/business-model` |
+| Notes | `/app/notes` |
+| Administration des candidats | `/app/candidats` |
+| Fiche détaillée d’un candidat | `/app/candidats/:id` |
+| Chemin inconnu | page 404 |
+
+Les boutons précédent/suivant du navigateur suivent la navigation dans l’espace. L’hébergeur doit renvoyer les chemins applicatifs vers `index.html` (fallback SPA) pour que l’ouverture directe ou le rechargement d’une URL comme `/app/notes` charge l’application.
 
 ## Démarrage local
 
@@ -31,7 +50,7 @@ Les données démo restent dans le stockage du navigateur. **Ce mode n’est pas
 ## Raccordement Supabase
 
 1. Créer un projet Supabase et définir `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` dans un fichier `.env.local` copié depuis `.env.example`. `VITE_SENTRY_DSN` est optionnel en local et ne remplace pas les deux variables Supabase. Les clés côté navigateur sont publiques/publishable ; ne jamais y mettre la clé `service_role`.
-2. Appliquer `supabase/migrations/202611240001_initial_schema.sql` dans le SQL Editor Supabase ou avec Supabase CLI.
+2. Appliquer les migrations de `supabase/migrations` dans l’ordre chronologique avec Supabase CLI (`npx supabase db push`) ou en exécutant chaque fichier une seule fois dans le SQL Editor Supabase. La migration `202611260001_candidate_action_plans.sql` crée le stockage des plans d’action réservé aux admins.
 3. Dans **Authentication → URL Configuration**, définir l’URL du site puis autoriser les redirections `https://adresse-de-ton-app/invite/accept` et, en développement, `http://localhost:5173/invite/accept`. Dans les réglages Auth, désactiver l’inscription publique et configurer le service d’e-mail. Régler l’expiration des liens d’invitation sur 24 heures et adapter le modèle d’e-mail d’invitation à l’URL `/invite/accept`. Le bouton « Mot de passe oublié ? » est déjà intégré ; il utilise cette même route de retour pour permettre au candidat de définir son nouveau mot de passe.
 4. Créer le premier utilisateur admin dans Authentication avec ta véritable adresse e-mail. La migration laisse les comptes créés hors invitation sans profil ; dans le SQL Editor, promouvoir précisément ce compte :
 
@@ -106,3 +125,5 @@ Avant ouverture réelle : exécuter ce scénario en préproduction, inspecter le
 ## Base44
 
 Importer le dossier `v3` comme application Vite/React, ajouter les variables publiques Supabase dans l’environnement de l’application, puis déployer la fonction et le schéma Supabase séparément. Le secret `service_role` reste exclusivement côté fonction Supabase. Vérifier également que le chemin de redirection `/invite/accept` est autorisé dans les réglages Auth du projet.
+
+(utilse le meme design du repo ici aussi ne change rien a ce niveau design juste connecte la base de données supabase permet le deploiment et arrange les toggle bouton cote admin pour ouvrir le quiz et l'activation des candidats reprend ce qui est affiche dans le repo a l'identique pour tout ce qui est affichage et il y'a plein de bugs dans les chargement de pages et consort je vois (vue d'ensemble et la page des candidats) alors que le suis connecte comme candidat )

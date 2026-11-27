@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, FileText, X } from "lucide-react";
+import { ArrowLeft, CalendarClock, Check, Download, FileText, Plus, Trash2 } from "lucide-react";
 import type {
+  AssessmentActionPlan,
   CandidateAssessment,
   CandidateDetails,
+  PlanAction,
 } from "./lib/backend";
+import { emptyAssessmentActionPlan } from "./lib/backend";
 import { scoreAssessment, type Answers } from "./lib/assessment";
 import { aspects, pillars, scale, swotSections } from "./lib/assessment-data";
 
@@ -13,6 +16,8 @@ type Props = {
   onClose: () => void;
   onSaveEligibility: (candidateId: string, date: string | null) => Promise<void>;
   onSaveFeedback: (assessmentId: string, feedback: string) => Promise<void>;
+  onSaveActionPlan: (assessmentId: string, plan: AssessmentActionPlan) => Promise<void>;
+  coachName: string;
 };
 
 const dateInputValue = (value?: string | null) => value?.slice(0, 10) ?? "";
@@ -34,21 +39,24 @@ export default function CandidateDetail({
   onClose,
   onSaveEligibility,
   onSaveFeedback,
+  onSaveActionPlan,
+  coachName,
 }: Props) {
   const [selectedId, setSelectedId] = useState("");
   const [feedbackAttemptId, setFeedbackAttemptId] = useState("");
   const [eligibility, setEligibility] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [actionPlan, setActionPlan] = useState<AssessmentActionPlan>(() => ({ ...emptyAssessmentActionPlan(), coachName }));
   const [saving, setSaving] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
   const [savingEligibility, setSavingEligibility] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const first = details?.attempts[0];
     const firstCompleted = details?.attempts.find(
       (item) => item.status === "completed",
     );
-    setSelectedId(first?.id ?? "");
+    setSelectedId(firstCompleted?.id ?? details?.attempts[0]?.id ?? "");
     setFeedbackAttemptId(firstCompleted?.id ?? "");
     setEligibility(dateInputValue(details?.profile.eligible_at));
     setFeedback(firstCompleted?.admin_feedback ?? "");
@@ -70,6 +78,10 @@ export default function CandidateDetail({
   useEffect(() => {
     setFeedback(feedbackAttempt?.admin_feedback ?? "");
   }, [feedbackAttempt?.id, feedbackAttempt?.admin_feedback]);
+
+  useEffect(() => {
+    setActionPlan({ ...emptyAssessmentActionPlan(), ...(attempt?.action_plan ?? {}), coachName: attempt?.action_plan?.coachName || coachName });
+  }, [attempt?.id, attempt?.action_plan, coachName]);
 
   async function saveFeedback() {
     if (!feedbackAttempt) return;
@@ -105,24 +117,41 @@ export default function CandidateDetail({
     }
   }
 
+  async function saveActionPlan() {
+    if (!attempt || attempt.status !== "completed") return;
+    setSavingPlan(true);
+    setError("");
+    try {
+      await onSaveActionPlan(attempt.id, actionPlan);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Le plan d’action n’a pas pu être enregistré.");
+    } finally {
+      setSavingPlan(false);
+    }
+  }
+
+  function updateAspectPlan(index: number, patch: Partial<{ comment: string; actions: PlanAction[] }>) {
+    const key = aspects[index].name;
+    setActionPlan((plan) => {
+      const current = plan.aspects[key] ?? { comment: "", actions: [] };
+      return { ...plan, aspects: { ...plan.aspects, [key]: { ...current, ...patch } } };
+    });
+  }
+
+  function printReport() {
+    const previousTitle = document.title;
+    document.title = `Bilan Makera - ${details?.profile.name ?? "Candidat"}`;
+    window.print();
+    window.setTimeout(() => { document.title = previousTitle; }, 1000);
+  }
+
   return (
-    <div
-      className="modal-backdrop candidate-detail-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onClose();
-      }}
-    >
+    <div className="candidate-detail-page space-y-5">
       <section
-        className="modal-card candidate-detail-modal"
-        role="dialog"
-        aria-modal="true"
+        className="space-y-5"
         aria-labelledby="candidate-detail-title"
       >
-        <div className="sticky top-0 z-10 -mx-5 -mt-5 flex items-start justify-between gap-4 border-b border-[#edf0eb] bg-white/95 px-5 py-4 backdrop-blur dark:border-white/10 dark:bg-[#19251e]/95 sm:-mx-7 sm:-mt-7 sm:px-7">
+        <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-[#e8ece6] bg-white p-5 dark:border-white/10 dark:bg-white/[.03] sm:p-7">
           <div className="min-w-0">
             <span className="eyebrow">FICHE CANDIDAT</span>
             {details ? (
@@ -133,9 +162,8 @@ export default function CandidateDetail({
                 >
                   {details.profile.name}
                 </h2>
-                <p className="mt-1 truncate text-xs text-[#78857c] dark:text-[#aab7ad]">
-                  {details.profile.project || "Projet non renseigné"} · {details.profile.email}
-                </p>
+                <p className="mt-1 truncate text-xs text-[#78857c] dark:text-[#aab7ad]">{details.profile.email}</p>
+                <p className="mt-1 text-xs text-[#78857c] dark:text-[#aab7ad]">Programme d’accompagnement : {details.profile.project || "Non renseigné"}</p>
               </>
             ) : (
               <h2 id="candidate-detail-title" className="mt-1 text-xl font-bold">
@@ -143,9 +171,12 @@ export default function CandidateDetail({
               </h2>
             )}
           </div>
-          <button onClick={onClose} className="secondary-button shrink-0" aria-label="Fermer la fiche candidat">
-            <X size={15} /> <span className="hidden sm:inline">Fermer</span>
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {attempt?.status === "completed" && result && <button onClick={printReport} className="primary-button shrink-0"><Download size={15} /> Exporter le rapport PDF</button>}
+            <button onClick={onClose} className="secondary-button shrink-0" aria-label="Retour aux candidats">
+              <ArrowLeft size={15} /> Retour aux candidats
+            </button>
+          </div>
         </div>
 
         {loading || !details ? (
@@ -229,7 +260,10 @@ export default function CandidateDetail({
                   </section>
 
                   <section className="rounded-2xl border border-[#e8ece6] p-4 dark:border-white/10 sm:p-5">
-                    <h3 className="text-sm font-extrabold">Profil sur les 8 aspects</h3>
+                    <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-extrabold">Profil sur les 8 aspects</h3><span className="text-xs font-bold text-[#267653]">Score par dimension</span></div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      {result.aspects.map((aspect) => <div key={aspect.name} className="flex items-center justify-between gap-3 rounded-xl bg-[#f7f9f6] px-3 py-2 text-xs dark:bg-white/[.035]"><span>{aspect.name}</span><b className="text-[#267653] dark:text-[#a6d6b0]">{aspect.score}%</b></div>)}
+                    </div>
                     <svg className="candidate-radar mt-3" viewBox="0 0 360 300" role="img" aria-label="Graphique des scores sur les huit aspects">
                       {[0.25, 0.5, 0.75, 1].map((level) => (
                         <polygon key={level} points={aspects.map((_, index) => radarPoint(index, level).join(",")).join(" ")} className="candidate-radar-grid" />
@@ -327,7 +361,36 @@ export default function CandidateDetail({
             </aside>
           </div>
         )}
+        {!loading && attempt?.status === "completed" && result && (
+          <section className="rounded-2xl border border-[#e8ece6] p-5 dark:border-white/10 sm:p-7">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div><span className="eyebrow">OUTIL DE COACHING</span><h3 className="mt-1 font-display text-xl font-extrabold">Plan d’action</h3><p className="mt-1 text-xs text-[#78857c] dark:text-[#aab7ad]">Associez un commentaire et des actions datées à chaque dimension, puis définissez les actions transversales.</p></div>
+              <button onClick={() => void saveActionPlan()} disabled={savingPlan} className="primary-button"><Check size={15} />{savingPlan ? "Enregistrement…" : "Enregistrer le plan"}</button>
+            </div>
+            <div className="mt-5 grid gap-4 xl:grid-cols-2">
+              {result.aspects.map((aspect, index) => {
+                const aspectPlan = actionPlan.aspects[aspect.name] ?? { comment: "", actions: [] };
+                return <article key={aspect.name} className="rounded-2xl bg-[#f7f9f6] p-4 dark:bg-white/[.035] sm:p-5">
+                  <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-extrabold">{aspect.name}</h4><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#267653] dark:bg-white/10 dark:text-[#a6d6b0]">{aspect.score}%</span></div>
+                  <label className="field-label mt-4 block">Commentaire / analyse<textarea className="field-input mt-2 min-h-24 resize-y" maxLength={2000} value={aspectPlan.comment} onChange={(event) => updateAspectPlan(index, { comment: event.target.value })} placeholder={`Comment interpréter le score de ${aspect.name.toLowerCase()} ?`} /></label>
+                  <ActionRows actions={aspectPlan.actions} onChange={(actions) => updateAspectPlan(index, { actions })} />
+                </article>;
+              })}
+            </div>
+            <section className="mt-5 rounded-2xl border border-[#dfe8df] p-4 dark:border-white/10 sm:p-5">
+              <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#eaf3ec] text-[#267653] dark:bg-[#267653]/20 dark:text-[#a6d6b0]"><CalendarClock size={18} /></div><div><h4 className="text-sm font-extrabold">Plan d’action général</h4><p className="mt-1 text-xs leading-5 text-[#78857c] dark:text-[#aab7ad]">Les actions transversales et le prochain passage peuvent se situer à différentes étapes du calendrier.</p></div></div>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="field-label">Coach / responsable<input className="field-input mt-2" maxLength={120} value={actionPlan.coachName} onChange={(event) => setActionPlan((plan) => ({ ...plan, coachName: event.target.value }))} placeholder={coachName} /></label>
+                <label className="field-label">Nouvelle date de passage<input className="field-input mt-2" type="date" value={actionPlan.reassessmentDate} onChange={(event) => setActionPlan((plan) => ({ ...plan, reassessmentDate: event.target.value }))} /></label>
+              </div>
+              <ActionRows actions={actionPlan.globalActions} onChange={(globalActions) => setActionPlan((plan) => ({ ...plan, globalActions }))} />
+            </section>
+          </section>
+        )}
       </section>
+      {!loading && details && attempt?.status === "completed" && result && (
+        <CandidateReport details={details} attempt={attempt} result={result} plan={actionPlan} />
+      )}
     </div>
   );
 }
@@ -336,4 +399,38 @@ function radarPoint(index: number, scaleValue: number): [number, number] {
   const angle = -Math.PI / 2 + (index * Math.PI) / 4;
   const radius = 88 * scaleValue;
   return [180 + Math.cos(angle) * radius, 140 + Math.sin(angle) * radius];
+}
+
+function ActionRows({ actions, onChange }: { actions: PlanAction[]; onChange: (actions: PlanAction[]) => void }) {
+  function addAction() {
+    onChange([...actions, { id: crypto.randomUUID(), action: "", startDate: "", endDate: "" }]);
+  }
+  return (
+    <div className="mt-4">
+      <div className="mb-2 flex items-center justify-between"><span className="text-xs font-bold">Actions et période d’application</span><button onClick={addAction} type="button" className="inline-flex items-center gap-1 text-xs font-bold text-[#267653] hover:underline dark:text-[#a6d6b0]"><Plus size={14} /> Ajouter une action</button></div>
+      {actions.length ? <div className="space-y-3">{actions.map((item, index) => <div key={item.id} className="rounded-xl border border-[#e5ebe4] bg-white p-3 dark:border-white/10 dark:bg-white/[.025]">
+        <div className="flex items-center gap-2"><span className="grid size-6 shrink-0 place-items-center rounded-lg bg-[#eff5ef] text-[10px] font-bold text-[#52765b] dark:bg-white/10 dark:text-[#bbd9c1]">{index + 1}</span><input className="field-input min-w-0 flex-1" aria-label={`Action ${index + 1}`} maxLength={500} value={item.action} onChange={(event) => onChange(actions.map((current) => current.id === item.id ? { ...current, action: event.target.value } : current))} placeholder="Décrire l’action à réaliser" /><button onClick={() => onChange(actions.filter((current) => current.id !== item.id))} type="button" className="icon-btn danger-hover" aria-label="Supprimer cette action"><Trash2 size={15} /></button></div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="field-label">Début<input className="field-input mt-1" type="date" value={item.startDate} onChange={(event) => onChange(actions.map((current) => current.id === item.id ? { ...current, startDate: event.target.value } : current))} /></label><label className="field-label">Fin prévue<input className="field-input mt-1" type="date" value={item.endDate} onChange={(event) => onChange(actions.map((current) => current.id === item.id ? { ...current, endDate: event.target.value } : current))} /></label></div>
+      </div>)}</div> : <p className="mb-0 mt-2 rounded-xl bg-white/70 px-3 py-3 text-xs text-[#8a968d] dark:bg-white/[.025] dark:text-[#aab7ad]">Aucune action ajoutée pour le moment.</p>}
+    </div>
+  );
+}
+
+function CandidateReport({ details, attempt, result, plan }: { details: CandidateDetails; attempt: CandidateAssessment; result: NonNullable<ReturnType<typeof scoreAssessment>>; plan: AssessmentActionPlan }) {
+  const timeline = [
+    ...plan.globalActions.filter((item) => item.action.trim()).map((item) => ({ ...item, milestone: false })),
+    ...(plan.reassessmentDate ? [{ id: "reassessment", action: "Nouveau passage du test de potentiel entrepreneurial", startDate: plan.reassessmentDate, endDate: "", milestone: true }] : []),
+  ].sort((a, b) => (a.startDate || "9999").localeCompare(b.startDate || "9999"));
+  const tableRows = (actions: PlanAction[]) => actions.filter((item) => item.action.trim()).map((item) => <tr key={item.id}><td>{item.action}</td><td>{item.startDate ? dateLabel(item.startDate) : "À définir"}{item.endDate ? ` – ${dateLabel(item.endDate)}` : ""}</td></tr>);
+  return (
+    <article className="candidate-report-print" aria-label="Rapport candidat à exporter">
+      <header className="report-header"><div><p className="eyebrow">MAKERA INSTITUTE · ACCOMPAGNEMENT ENTREPRENEURIAL</p><h1>Rapport de potentiel entrepreneurial</h1><p>Confidentiel · Document de suivi individuel</p></div><div className="report-score">{result.score}%<small>score global</small></div></header>
+      <section className="report-section"><h2>1. Informations du candidat</h2><dl className="report-meta"><div><dt>Nom complet</dt><dd>{details.profile.name}</dd></div><div><dt>Adresse e-mail</dt><dd>{details.profile.email}</dd></div><div><dt>Date de passage</dt><dd>{dateLabel(attempt.completed_at || attempt.started_at)}</dd></div><div><dt>Programme d’accompagnement</dt><dd>{details.profile.project || "Non renseigné"}</dd></div><div><dt>Coach / responsable</dt><dd>{plan.coachName || "Non renseigné"}</dd></div><div><dt>Nouveau passage</dt><dd>{plan.reassessmentDate ? dateLabel(plan.reassessmentDate) : "À planifier"}</dd></div></dl></section>
+      <section className="report-section"><h2>2. Résumé des résultats</h2><div className="report-profile"><div><h3>{result.profile}</h3><p>{result.reading}</p></div><div className="report-aspect-list">{result.aspects.map((aspect) => <div key={aspect.name}><span>{aspect.name}</span><b>{aspect.score}%</b></div>)}</div></div><svg className="candidate-radar report-radar" viewBox="0 0 360 300" role="img" aria-label="Diagramme en toile d’araignée du profil entrepreneurial">{[0.25, 0.5, 0.75, 1].map((level) => <polygon key={level} points={aspects.map((_, index) => radarPoint(index, level).join(",")).join(" ")} className="candidate-radar-grid" />)}{result.aspects.map((aspect, index) => <line key={aspect.name} x1="180" y1="140" x2={radarPoint(index, 1)[0]} y2={radarPoint(index, 1)[1]} className="candidate-radar-axis" />)}<polygon points={result.aspects.map((aspect, index) => radarPoint(index, aspect.score / 100).join(",")).join(" ")} className="candidate-radar-area" />{result.aspects.map((aspect, index) => { const [x, y] = radarPoint(index, aspect.score / 100); const [lx, ly] = radarPoint(index, 1.22); return <g key={aspect.name}><circle cx={x} cy={y} r="4" className="candidate-radar-dot"/><text x={lx} y={ly} textAnchor={lx < 135 ? "end" : lx > 225 ? "start" : "middle"} className="candidate-radar-label">{aspects[index].short}</text></g>; })}</svg></section>
+      <section className="report-section"><h2>3. Analyse SWOT · FFOM</h2><div className="report-swot">{swotSections.map((section) => <div key={section.key}><h3>{section.title}</h3><ul>{(attempt.swot?.[section.key] ?? []).filter((entry) => entry.trim()).map((entry, index) => <li key={`${section.key}-${index}`}>{entry}</li>)}{!(attempt.swot?.[section.key] ?? []).some((entry) => entry.trim()) && <li>Non renseigné</li>}</ul></div>)}</div></section>
+      <section className="report-section"><h2>4. Commentaires et plans d’action par aspect</h2>{attempt.admin_feedback?.trim() && <div className="report-general-feedback"><b>Retour général du coach</b><p>{attempt.admin_feedback}</p></div>}{result.aspects.map((aspect) => { const aspectPlan = plan.aspects[aspect.name] ?? { comment: "", actions: [] }; const rows = tableRows(aspectPlan.actions); return <div className="report-aspect" key={aspect.name}><h3>{aspect.name} <span>{aspect.score}%</span></h3><p>{aspectPlan.comment.trim() || "Aucun commentaire saisi."}</p><table><thead><tr><th>Action</th><th>Période d’application</th></tr></thead><tbody>{rows.length ? rows : <tr><td colSpan={2}>Aucune action renseignée.</td></tr>}</tbody></table></div>; })}</section>
+      <section className="report-section"><h2>5. Plan d’action général et suivi</h2><table><thead><tr><th>Étape</th><th>Période</th></tr></thead><tbody>{timeline.length ? timeline.map((item) => <tr key={item.id} className={item.milestone ? "report-milestone" : ""}><td>{item.action}</td><td>{item.startDate ? dateLabel(item.startDate) : "À définir"}{item.endDate ? ` – ${dateLabel(item.endDate)}` : ""}</td></tr>) : <tr><td colSpan={2}>Aucune action générale renseignée.</td></tr>}</tbody></table><p className="report-footnote">La date du prochain test est positionnée selon le calendrier d’accompagnement et peut se trouver au milieu des actions planifiées.</p></section>
+      <footer className="report-footer">Makera Institute · Niamey, Niger · Document de travail confidentiel</footer>
+    </article>
+  );
 }

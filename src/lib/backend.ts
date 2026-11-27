@@ -37,7 +37,27 @@ export type CandidateAssessment = {
   started_at: string;
   completed_at: string | null;
   admin_feedback: string | null;
+  action_plan: AssessmentActionPlan;
 };
+export type PlanAction = {
+  id: string;
+  action: string;
+  startDate: string;
+  endDate: string;
+};
+export type AspectActionPlan = { comment: string; actions: PlanAction[] };
+export type AssessmentActionPlan = {
+  aspects: Record<string, AspectActionPlan>;
+  globalActions: PlanAction[];
+  reassessmentDate: string;
+  coachName: string;
+};
+export const emptyAssessmentActionPlan = (): AssessmentActionPlan => ({
+  aspects: {},
+  globalActions: [],
+  reassessmentDate: "",
+  coachName: "",
+});
 export type CandidateDetails = {
   profile: Profile;
   attempts: CandidateAssessment[];
@@ -425,6 +445,7 @@ export async function readCandidateDetails(
                 : null,
             admin_feedback:
               localStorage.getItem(`makera.demo.feedback.${stored.id}`) ?? null,
+            action_plan: stored.action_plan ?? emptyAssessmentActionPlan(),
           },
         ]
       : [];
@@ -448,9 +469,23 @@ export async function readCandidateDetails(
     ]);
   if (profileError) throw profileError;
   if (error) throw error;
+  const assessmentIds = (attempts || []).map((item) => item.id);
+  const actionPlanByAssessment = new Map<string, AssessmentActionPlan>();
+  if (assessmentIds.length) {
+    const { data: plans, error: planError } = await supabase
+      .from("assessment_action_plans")
+      .select("assessment_id,action_plan")
+      .in("assessment_id", assessmentIds);
+    if (planError) throw planError;
+    for (const item of plans || [])
+      actionPlanByAssessment.set(item.assessment_id, item.action_plan as AssessmentActionPlan);
+  }
   return {
     profile: profile as Profile,
-    attempts: attempts as CandidateAssessment[],
+    attempts: (attempts || []).map((item) => ({
+      ...item,
+      action_plan: actionPlanByAssessment.get(item.id) ?? emptyAssessmentActionPlan(),
+    })) as CandidateAssessment[],
   };
 }
 export async function saveCandidateEligibility(
@@ -479,6 +514,34 @@ export async function saveCandidateFeedback(
   const { error } = await supabase.rpc("admin_save_assessment_feedback", {
     p_assessment_id: assessmentId,
     p_feedback: feedback,
+  });
+  if (error) throw error;
+}
+export async function saveCandidateActionPlan(
+  assessmentId: string,
+  actionPlan: AssessmentActionPlan,
+) {
+  const serialized = JSON.stringify(actionPlan);
+  if (serialized.length > 50000)
+    throw new Error("Le plan d’action dépasse la taille autorisée.");
+  if (!supabase) {
+    const key = "makera.demo.assessment.";
+    // In demonstration mode, keep the plan beside the assessment result.
+    const candidateId = "candidate";
+    const raw = localStorage.getItem(`${key}${candidateId}`);
+    if (raw) {
+      const stored = JSON.parse(raw);
+      if (stored.id === assessmentId) {
+        stored.action_plan = actionPlan;
+        localStorage.setItem(`${key}${candidateId}`, JSON.stringify(stored));
+      }
+    }
+    localStorage.setItem(`makera.demo.action-plan.${assessmentId}`, serialized);
+    return;
+  }
+  const { error } = await supabase.rpc("admin_save_assessment_action_plan", {
+    p_assessment_id: assessmentId,
+    p_action_plan: actionPlan,
   });
   if (error) throw error;
 }
