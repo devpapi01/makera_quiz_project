@@ -98,7 +98,12 @@ export async function signIn(email: string, password: string) {
       password,
     });
     if (error) throw error;
-    return getProfile(data.user);
+    const profile = await getProfile(data.user);
+    if (!profile) {
+      await supabase.auth.signOut();
+      throw new Error("Accès réservé aux candidats invités.");
+    }
+    return profile;
   }
   const account = demoAccounts.find(
     (item) =>
@@ -128,9 +133,21 @@ export async function getProfile(user?: User | null): Promise<Profile | null> {
     .from("profiles")
     .select("id,name,email,role,project,authorized,eligible_at")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
   if (error) throw error;
-  return data as Profile;
+  return data as Profile | null;
+}
+
+export async function signInWithGoogle() {
+  if (!supabase)
+    throw new Error("La connexion Google nécessite une connexion à Supabase.");
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${window.location.origin}/`,
+    },
+  });
+  if (error) throw error;
 }
 
 export async function signOut() {
